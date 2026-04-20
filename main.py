@@ -1,111 +1,72 @@
-from fastapi import FastAPI, Depends, HTTPException, Security
-from fastapi.security.api_key import APIKeyHeader
-from pydantic import BaseModel, Field
-from typing import List, Optional
-import datetime
-import uuid
+from fastapi import FastAPI, Response
+from email.utils import formatdate
+import time
 
-# ==========================================
-# 1. نظام الحماية والتصاريح (Authentication)
-# ==========================================
-API_KEY_NAME = "X-NewsWire-API-Key"
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+app = FastAPI(title="وكالة الأنباء الاحترافية - RSS Feed")
 
-# قاعدة بيانات وهمية للمشتركين (القنوات الفضائية المشتركة في وكالتك)
-VALID_CLIENTS = {
-    "key_aljazeera_8923": "Al Jazeera Network",
-    "key_alarabiya_4412": "Al Arabiya",
-    "key_bbc_arabic_9910": "BBC Arabic"
-}
-
-async def verify_api_key(api_key: str = Security(api_key_header)):
-    if api_key not in VALID_CLIENTS:
-        raise HTTPException(status_code=403, detail="غير مصرح لك بسحب الأخبار. يرجى تجديد الاشتراك.")
-    return VALID_CLIENTS[api_key]
-
-# ==========================================
-# 2. الهيكلة القياسية للخبر (Data Models)
-# ==========================================
-class WireStory(BaseModel):
-    story_id: str = Field(default_factory=lambda: f"urn:newsml:youragency.com:20260420:{uuid.uuid4().hex[:8]}")
-    slugline: str = Field(..., description="الكلمة المفتاحية للخبر للبحث السريع في iNews")
-    urgency: int = Field(..., ge=1, le=6, description="1: Flash (عاجل جدا), 2: Bulletin, 4: Regular")
-    headline: str
-    body_text: str
-    category_code: str = Field(..., description="مثال: POL للسياسة, ECO للاقتصاد")
-    published_at: datetime.datetime
-    embargo_time: Optional[datetime.datetime] = None # وقت فك حظر النشر إن وجد
-
-# ==========================================
-# 3. إعداد السيرفر (FastAPI App)
-# ==========================================
-app = FastAPI(
-    title="نظام الواير الاحترافي للوكالة",
-    description="واجهة برمجة التطبيقات (API) لتوزيع الأخبار على أنظمة Newsrooms",
-    version="2.0.0"
-)
-
-# قاعدة بيانات وهمية للأخبار الموجودة حالياً
-db_news_wire = [
-    WireStory(
-        slugline="BC-USA-ELECTION-FLASH",
-        urgency=1, # عاجل جداً يطلق صافرة في غرف الأخبار
-        headline="عاجل | إعلان نتائج التصويت الأولية في ولاية حاسمة",
-        body_text="أظهرت النتائج الأولية تقدم المرشح...",
-        category_code="POL",
-        published_at=datetime.datetime.now(datetime.timezone.utc)
-    ),
-    WireStory(
-        slugline="BC-MARKETS-OIL-UPDATE",
-        urgency=4, # خبر عادي
-        headline="استقرار أسعار النفط عالمياً بعد قرارات أوبك",
-        body_text="شهدت أسواق النفط استقراراً ملحوظاً اليوم...",
-        category_code="ECO",
-        published_at=datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=15)
-    )
+# قاعدة بيانات الأخبار (تخيل أن الصحفيين أدخلوها عبر لوحة التحكم)
+# وضعت لك صوراً حقيقية لروابط مشابهة لما كان في الملف القديم
+db_news = [
+    {
+        "id": "1001",
+        "title": "Javier Milei",
+        "desc": "الرئيس ميلي في إسرائيل 🇦🇷🇮🇱 | لقاء تاريخي لتعزيز العلاقات.",
+        "link": "https://x.com/JMilei/status/123456",
+        # توليد الوقت بالصيغة العالمية RFC 822 التي يقرأها feedparser
+        "date": formatdate(timeval=time.time(), localtime=False, usegmt=True), 
+        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Javier_Milei_en_el_Foro_Econ%C3%B3mico_Mundial_2024_%28cropped%29.jpg/800px-Javier_Milei_en_el_Foro_Econ%C3%B3mico_Mundial_2024_%28cropped%29.jpg"
+    },
+    {
+        "id": "1002",
+        "title": "التلفزيون العربي",
+        "desc": "عاجل | الرئاسة الإيرانية تؤكد استمرار المحادثات الدبلوماسية لوقف إطلاق النار.",
+        "link": "https://alaraby.com/news/789",
+        "date": formatdate(timeval=time.time() - 3600, localtime=False, usegmt=True), # خبر قبل ساعة
+        "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Alaraby_TV_logo.svg/800px-Alaraby_TV_logo.svg.png"
+    },
+    {
+        "id": "1003",
+        "title": "خبر عاجل - بدون صورة",
+        "desc": "بيان رسمي يوضح تفاصيل القرارات الاقتصادية الجديدة.",
+        "link": "https://news.com/urgent",
+        "date": formatdate(timeval=time.time() - 7200, localtime=False, usegmt=True),
+        "image": None # اختبار لخبر بدون صورة
+    }
 ]
 
-# ==========================================
-# 4. مسارات سحب الأخبار (Endpoints)
-# ==========================================
+@app.get("/x_world_leaders.xml") # جعلنا الرابط بنفس اسم الملف القديم تقريباً!
+def generate_rss_feed():
+    """
+    هذه الدالة تصنع ملف XML يطابق تماماً الملف الذي كان يقرأه موقعك
+    """
+    # ترويسة ملف RSS القياسية مع دعم الصور (media)
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    xml += '<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">\n'
+    xml += '  <channel>\n'
+    xml += '    <title>وكالة الأنباء الاحترافية (الواير الخاص)</title>\n'
+    xml += '    <link>https://your-agency-domain.com</link>\n'
+    xml += '    <description>تغذية إخبارية حية لغرف الأخبار</description>\n'
 
-@app.get("/api/v1/wire/latest", response_model=List[WireStory])
-async def get_latest_news(limit: int = 50, client_name: str = Depends(verify_api_key)):
-    """
-    هذا الرابط الذي ستضعه القنوات في برامجها لسحب أحدث الأخبار بصيغة JSON السريعة.
-    يتم تسجيل اسم القناة التي سحبت الخبر لأغراض الفوترة.
-    """
-    # هنا يتم ترتيب الأخبار وعرض أحدثها (بحد أقصى يحدده المتغير limit)
-    # ملاحظة: في العمل الحقيقي، نقوم بسحبها من قاعدة بيانات حقيقية مثل PostgreSQL
-    return db_news_wire[:limit]
+    # تحويل قاعدة البيانات إلى أسطر XML
+    for item in db_news:
+        xml += '    <item>\n'
+        xml += f'      <title><![CDATA[{item["title"]}]]></title>\n'
+        xml += f'      <link>{item["link"]}</link>\n'
+        xml += f'      <description><![CDATA[{item["desc"]}]]></description>\n'
+        xml += f'      <pubDate>{item["date"]}</pubDate>\n'
+        xml += f'      <guid isPermaLink="false">{item["id"]}</guid>\n'
+        
+        # السر هنا: هذا الكود هو الذي سيجعل موقعك (وأنظمة الأخبار الأخرى) تسحب الصور!
+        if item["image"]:
+            # Enclosure هو المعيار القديم
+            xml += f'      <enclosure url="{item["image"]}" type="image/jpeg" length="1024" />\n'
+            # Media:content هو المعيار الحديث الذي يبحث عنه الكود الخاص بك
+            xml += f'      <media:content url="{item["image"]}" medium="image" />\n'
+            
+        xml += '    </item>\n'
 
-@app.get("/api/v1/wire/newsml")
-async def get_newsml_g2(client_name: str = Depends(verify_api_key)):
-    """
-    المعيار الذهبي (NewsML-G2): صيغة XML المعقدة التي تفهمها أنظمة (ENPS و iNews) القديمة والحديثة.
-    """
-    # توليد كود XML متوافق مع معايير الصحافة العالمية
-    xml_content = '<?xml version="1.0" encoding="UTF-8"?>\n<newsMessage xmlns="http://iptc.org/std/nar/2006-10-01/">\n'
-    for news in db_news_wire:
-        xml_content += f"""
-        <itemSet>
-            <newsItem guid="{news.story_id}">
-                <itemMeta>
-                    <urgency>{news.urgency}</urgency>
-                </itemMeta>
-                <contentMeta>
-                    <headline>{news.headline}</headline>
-                    <slugline>{news.slugline}</slugline>
-                </contentMeta>
-                <contentSet>
-                    <inlineXML>
-                        <body>{news.body_text}</body>
-                    </inlineXML>
-                </contentSet>
-            </newsItem>
-        </itemSet>
-        """
-    xml_content += "</newsMessage>"
+    xml += '  </channel>\n'
+    xml += '</rss>'
     
-    from fastapi.responses import Response
-    return Response(content=xml_content, media_type="application/xml")
+    # إرسال الملف للمتصفح على أنه ملف XML وليس نصاً عادياً
+    return Response(content=xml, media_type="application/xml")
